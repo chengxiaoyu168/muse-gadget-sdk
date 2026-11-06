@@ -216,6 +216,10 @@ idf_component_register(
     PRIV_REQUIRES ${muse_priv_requires}
 )
 
+# Home Link's DNS/connect policy headers. The account client calls them
+# directly; TLS open is a function pointer registered from main.
+target_include_directories(${COMPONENT_LIB} PRIVATE "${CMAKE_SOURCE_DIR}/main")
+
 if(CONFIG_MUSE_UI_FREEINK)
     # FreeInk's board profile, for the panel and its pins. PUBLIC: FreeInk's
     # headers read it too, in every file that includes them.

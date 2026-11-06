@@ -88,6 +88,7 @@ class LinkVmApiAuthHarnessTest(unittest.TestCase):
                 str(ROOT / "components" / "muse"),
                 str(ROOT / "tests" / "link_vm_api_harness.c"),
                 str(ROOT / "main" / "vm_api.c"),
+                str(ROOT / "main" / "net_dns_policy.c"),
                 str(ROOT / "components" / "muse" / "muse_account_api.c"),
                 str(ROOT / "tests" / "link_fakes" / "cJSON.c"),
                 "-o",

@@ -38,3 +38,9 @@ typedef struct {
  * Returns 0, MUSE_HATCH_API_AUTH or MUSE_HATCH_API_FAILED.
  */
 int muse_hatch_api_find_vm(const char *device_token, const char *want_vm, muse_hatch_vm_t *out);
+
+/* Optional multi-address lookup for fetch_vms. NULL keeps one request. */
+#define MUSE_ACCOUNT_ADDR_LEN 16
+void muse_account_set_ipv4_resolver(int (*resolve)(const char *host,
+                                                    char out[][MUSE_ACCOUNT_ADDR_LEN],
+                                                    int max));

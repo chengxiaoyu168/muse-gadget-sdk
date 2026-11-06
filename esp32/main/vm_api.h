@@ -49,6 +49,11 @@ typedef enum {
 // as-is. NULL or empty restores the compiled default.
 void vm_api_set_base_url(const char *url);
 
+// Optional. When it returns one or more IPv4 addresses, fetch/mint/refresh
+// try each of them inside one bounded budget. NULL keeps a single request
+// to the URL (host tests, and the DNS-not-ready retry).
+void vm_api_set_ipv4_resolver(int (*resolve)(const char *host, char out[][16], int max));
+
 // SDK token sent with device-token mint and refresh. NULL or empty sends none.
 void vm_api_set_sdk_token(const char *sdk_token);
 

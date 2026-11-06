@@ -28,9 +28,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "net_dns_policy.h"
+
 static const char *TAG = "link.vm_api";
 static char s_api_base[256] = VM_API_DEFAULT_BASE_URL;
 static char s_sdk_token[64];
+static int (*s_resolve_ipv4)(const char *host, char out[][16], int max);
 #define FETCH_PATH "/fetch_vms"
 #define MINT_TOKEN_PATH "/device_token/mint"
 #define REFRESH_TOKEN_PATH "/device_token/refresh"
@@ -105,6 +108,10 @@ void vm_api_set_base_url(const char *url) {
              url && *url ? url : VM_API_DEFAULT_BASE_URL);
 }
 
+void vm_api_set_ipv4_resolver(int (*resolve)(const char *host, char out[][16], int max)) {
+    s_resolve_ipv4 = resolve;
+}
+
 void vm_api_set_sdk_token(const char *sdk_token) {
     if (sdk_token && strlen(sdk_token) >= sizeof(s_sdk_token)) {
         ESP_LOGE(TAG, "SDK token too long; sending none");
@@ -124,6 +131,7 @@ static char *str_dup(const cJSON *item) {
 
 static int http_json(const char *url, esp_http_client_method_t method,
                      const char *auth_header, const char *body,
+                     const char *sni, const char *host_header, int timeout_ms,
                      resp_buf_t *resp, int *status_out) {
     if (!url || !resp || !status_out) return VM_API_ERR_FAILED;
     *resp = (resp_buf_t){ .auth_header = auth_header };
@@ -132,7 +140,7 @@ static int http_json(const char *url, esp_http_client_method_t method,
     esp_http_client_config_t cfg = {
         .url = url,
         .method = method,
-        .timeout_ms = 15000,
+        .timeout_ms = timeout_ms > 0 ? timeout_ms : 15000,
         .buffer_size = 4096,
         .buffer_size_tx = 4096,
         .event_handler = http_event_handler,
@@ -140,11 +148,17 @@ static int http_json(const char *url, esp_http_client_method_t method,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .disable_auto_redirect = true,
     };
+    /* The address is the TCP target. common_name keeps SNI and the
+     * certificate check on the hostname; skip_common_name stays false. */
+    if (sni && sni[0]) cfg.common_name = sni;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return VM_API_ERR_FAILED;
 
     if (auth_header && *auth_header) {
         esp_http_client_set_header(client, "Authorization", auth_header);
+    }
+    if (host_header && host_header[0]) {
+        esp_http_client_set_header(client, "Host", host_header);
     }
     esp_http_client_set_header(client, "X-API-Version", "1.0.0");
     if (body) {
@@ -187,13 +201,71 @@ static int http_json_with_retries(const char *url, esp_http_client_method_t meth
     int status = 0;
     if (status_out) *status_out = 0;
 
+    char host[256];
+    char addrs[NET_DNS_MAX_ADDRS][NET_DNS_ADDR_LEN];
+    int n_addrs = 0;
+    if (s_resolve_ipv4 && net_dns_url_host(url, host, sizeof(host))) {
+        n_addrs = s_resolve_ipv4(host, addrs, NET_DNS_MAX_ADDRS);
+    }
+    if (n_addrs > 0) {
+        /* One record only. Eight of them are ~8 KB, and this runs on the
+         * 8 KB main task: the prologue's first store (sw zero,44(sp),
+         * encoding 0xd602) tripped the hardware stack guard. */
+        net_dns_try_t tries[NET_DNS_MAX_TRIES];
+        int n_tries = net_dns_plan_tries(n_addrs, NET_DNS_CONNECT_BUDGET_MS,
+                                         NET_DNS_ATTEMPT_CAP_MS, NET_DNS_ATTEMPT_MIN_MS,
+                                         tries, NET_DNS_MAX_TRIES);
+        if (n_tries > 0) {
+            int rc = VM_API_ERR_FAILED;
+            for (int i = 0; i < n_tries; i++) {
+                net_http_attempt_t attempt;
+                int index = tries[i].addr_index;
+                if (index < 0 || index >= n_addrs ||
+                    !net_http_fill(url, addrs[index], index, tries[i].timeout_ms, &attempt)) {
+                    break;
+                }
+                free(resp->buf);
+                resp->buf = NULL;
+                resp->len = 0;
+                resp->cap = 0;
+                rc = http_json(attempt.connect_url, method, auth_header, body,
+                               attempt.sni, attempt.host_header,
+                               attempt.timeout_ms, resp, &status);
+                if (status_out) *status_out = status;
+                if (rc == 0) {
+                    ESP_LOGI(TAG, "HTTP %d via %s, %d bytes",
+                             status, attempt.addr, (int)resp->len);
+                    return 0;
+                }
+                if (rc == VM_API_ERR_AUTH) {
+                    free(resp->buf);
+                    resp->buf = NULL;
+                    return VM_API_ERR_AUTH;
+                }
+                if (status > 0 && !http_status_retryable(status)) {
+                    ESP_LOGW(TAG, "HTTP %d via %s is not retryable", status, attempt.addr);
+                    free(resp->buf);
+                    resp->buf = NULL;
+                    return VM_API_ERR_FAILED;
+                }
+                ESP_LOGW(TAG, "%s address %d/%d %s failed (status=%d)",
+                         host, i + 1, n_tries, attempt.addr, status);
+            }
+            ESP_LOGE(TAG, "%s failed across %d address(es) within %dms",
+                     host, n_addrs, NET_DNS_CONNECT_BUDGET_MS);
+            free(resp->buf);
+            resp->buf = NULL;
+            return VM_API_ERR_FAILED;
+        }
+    }
+
     for (int attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
         free(resp->buf);
         resp->buf = NULL;
         resp->len = 0;
         resp->cap = 0;
 
-        int rc = http_json(url, method, auth_header, body, resp, &status);
+        int rc = http_json(url, method, auth_header, body, NULL, NULL, 0, resp, &status);
         if (status_out) *status_out = status;
         if (rc == 0) {
             ESP_LOGI(TAG, "HTTP %d, %d bytes (attempt %d)",

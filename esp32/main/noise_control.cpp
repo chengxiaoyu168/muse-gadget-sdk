@@ -36,6 +36,7 @@
 #include "esp_random.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#include "net_connect.h"
 #include "esp_app_desc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -2053,21 +2054,16 @@ static session_result_t run_session(stack_monitor_t *stack) {
     pending_json_body control_tx;
     identity_fetch identity = {};
 
-    // 1. TLS connect
-    esp_tls_t *tls = esp_tls_init();
-    if (!tls) {
-        ESP_LOGE(TAG, "esp_tls_init failed");
-        return SESSION_FAILED;
-    }
+    // 1. TLS connect. esp-tls itself connects to the first getaddrinfo result
+    // only; net_tls_connect_new walks the rest inside this budget and keeps
+    // the hostname for SNI and the certificate check.
     esp_tls_cfg_t cfg = {};
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
-
-    int r = esp_tls_conn_new_sync(s_noise_host, static_cast<int>(strlen(s_noise_host)),
-                                  NOISE_PORT, &cfg, tls);
-    if (r != 1) {
-        ESP_LOGE(TAG, "TLS connect failed: %d", r);
-        esp_tls_conn_destroy(tls);
+    cfg.skip_common_name = false;
+    esp_tls_t *tls = net_tls_connect_new(s_noise_host, NOISE_PORT, &cfg);
+    if (!tls) {
+        ESP_LOGE(TAG, "TLS connect failed");
         return SESSION_FAILED;
     }
     ESP_LOGI(TAG, "TLS connected to %s:%d (vm_id=%s)", s_noise_host, NOISE_PORT, s_vm_id);

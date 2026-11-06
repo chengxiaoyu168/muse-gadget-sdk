@@ -29,6 +29,7 @@
 #include "soc/soc_caps.h"
 
 #include "identity.h"
+#include "net_dns.h"
 
 // The chip's own USB port, where it has one and the log goes to it.
 #define USJ_CONSOLE (SOC_USB_SERIAL_JTAG_SUPPORTED && \
@@ -85,7 +86,16 @@ static void feed(line_reader_t *r, char c) {
         return;
     }
     r->buf[r->len] = '\0';
-    if (!r->overflow && r->buf[0] == '>') sdk_token_console_command(r->buf + 1);
+    if (!r->overflow && r->buf[0] == '>') {
+        const char *line = r->buf + 1;
+        if (!sdk_token_console_command(line)) {
+            char reply[128];
+            if (net_dns_handle_line(line, reply, sizeof(reply))) {
+                printf("%s\n", reply);
+                fflush(stdout);
+            }
+        }
+    }
     r->len = 0;
     r->overflow = false;
 }

@@ -160,6 +160,10 @@ CONFIG_LOG_TIMESTAMP_SOURCE_RTOS=y
 
 # WiFi: no NVS (we only show visible APs, creds are in our own config store).
 CONFIG_ESP_WIFI_NVS_ENABLED=n
+# lwIP's default keeps one A record, and esp-tls connects to that record
+# alone. Home Link walks up to four. The extra DNS-table RAM is a few
+# hundred bytes.
+CONFIG_LWIP_DNS_MAX_HOST_IP=4
 # WiFi MAC layer: widen the block-ack window to match the AP's addba response;
 # cap TX buffers at 32 to keep DMA-capable internal SRAM free for HW AES during
 # bursts (BLE ~43 KB + WiFi TX was exhausting DMA heap under tunnel traffic).

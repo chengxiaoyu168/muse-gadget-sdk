@@ -50,7 +50,9 @@ static uint16_t s_status_handle;
 static volatile uint32_t s_passkey;
 static volatile bool s_secure;
 static char s_name[32];   /* the whole "MuseGadget-XXXXXX", not a prefix of it */
-static char s_last[64] = "ready";
+static char s_last[160] = "ready";
+static char s_dns_reply[96];
+static bool (*s_dns_handler)(const char *line, char *reply, size_t cap);
 
 /* ---- commands ---- */
 
@@ -94,6 +96,8 @@ static int build_status(char *out, size_t len)
                     "{\"name\":\"%s\",\"fw\":\"%s\",\"battery\":%d,"
                     "\"wifi\":{\"on\":%s,\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d},"
                     "\"hatch\":{\"host\":\"%s\",\"vm\":\"%s\",\"token\":%s,\"state\":\"%s\"},"
+                    /* token is the optional manual hatch token. Home Link
+                     * pairing leaves it false; the device token is separate. */
                     "\"link\":{\"paired\":%s,\"state\":\"%s\"},"
                     "\"volume\":%d,\"speaker\":%s,\"mic_gain\":%d,\"brightness\":%d,\"sleep\":%d,\"last\":\"%s\"}",
                     s_name, esp_app_get_description()->version, p.battery_pct,
@@ -171,6 +175,18 @@ static void run_command(char *cmd)
         muse_settings_set_brightness(n);
     } else if (!strcmp(cmd, "sleep") && parse_int(v, 0, 3600, &n)) {
         muse_settings_set_sleep_s(n);
+    } else if (!strcmp(cmd, "dns")) {
+        char line[80];
+        int wrote = v[0] ? snprintf(line, sizeof(line), "dns=%s", v)
+                         : snprintf(line, sizeof(line), "dns");
+        if (wrote < 0 || (size_t)wrote >= sizeof(line) || !s_dns_handler
+            || !s_dns_handler(line, s_dns_reply, sizeof(s_dns_reply))) {
+            res = "error: unavailable";
+        } else {
+            res = s_dns_reply;
+            printf("%s\n", s_dns_reply);
+            fflush(stdout);
+        }
     } else {
         res = "error: unknown command or bad value";
     }
@@ -270,6 +286,11 @@ void muse_ble_configure_host(void)
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_store_config_init();
+}
+
+void muse_ble_set_dns_handler(bool (*handler)(const char *line, char *reply, size_t cap))
+{
+    s_dns_handler = handler;
 }
 
 void muse_ble_set_name(const char *name)
