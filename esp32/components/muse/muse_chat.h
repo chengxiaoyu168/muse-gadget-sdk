@@ -64,6 +64,10 @@ typedef struct {
 /* Starts the connection task; it connects once Wi-Fi is up. */
 void muse_hatch_start(void);
 
+/* Optional. Replaces the voice session's single-address TLS connect.
+ * fn is esp_tls_t *(*)(const char *host, int port, const esp_tls_cfg_t *cfg). */
+void muse_hatch_set_tls_open(void *fn);
+
 /* The session task connects once Wi-Fi is up, and again whenever a turn needs it. */
 void muse_hatch_status(muse_hatch_status_t *out);
 /* (Re)connects to the VM and reports the result in the status. */

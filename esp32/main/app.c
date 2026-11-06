@@ -47,6 +47,12 @@
 #include "config_store.h"
 #include "wifi_mgr.h"
 #include "wifi_known.h"
+#include "net_dns.h"
+#include "net_connect.h"
+#if CONFIG_MUSE_HATCH || CONFIG_HOMEHUB_VOICE
+#include "muse_account_api.h"
+extern void muse_hatch_set_tls_open(void *fn);
+#endif
 #include "customer_product_info.h"
 #include "ble_coex.h"
 #if CONFIG_HOMEHUB_BLE_COMMANDS
@@ -2701,6 +2707,12 @@ void app_run(void) {
     link_pairing_init(identity_node_id(), identity_device_id(), identity_mac(),
                       app_desc ? app_desc->version : "unknown", identity_sdk_token());
     vm_api_set_sdk_token(identity_sdk_token());
+    net_dns_init(wifi_mgr_get_netif());
+    vm_api_set_ipv4_resolver(net_resolve_ipv4);
+#if CONFIG_MUSE_HATCH || CONFIG_HOMEHUB_VOICE
+    muse_account_set_ipv4_resolver(net_resolve_ipv4);
+    muse_hatch_set_tls_open((void *)net_tls_connect_new);
+#endif
 #if !CONFIG_MUSE_ENABLED
     // Muse boards' own console takes the command (muse_glue_start).
     sdk_token_console_start();

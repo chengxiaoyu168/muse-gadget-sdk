@@ -29,7 +29,9 @@
  *   CMD    (write)       "key=value" text: wifi.ssid, wifi.pass, wifi.connect,
  *                        wifi.forget (=ssid forgets that one, bare forgets all
  *                        saved networks), hatch.host, hatch.vm, hatch.token,
- *                        hatch.token+ (append chunk), hatch.test, volume,
+ *                        hatch.token+ (append chunk), hatch.test, dns (show),
+ *                        dns=<ip> or dns=<ip>,<ip> (opt-in resolvers),
+ *                        dns=clear / dns=dhcp (restore DHCP), volume,
  *                        mic_gain, brightness, sleep
  *   STATUS (read/notify) JSON snapshot; notifies a short result after each CMD
  *
@@ -62,6 +64,10 @@ void muse_ble_configure_host(void);
 /* Sees every GAP event on Link's connection; returns the event's result code. */
 int muse_ble_gap_event(struct ble_gap_event *ev);
 void muse_ble_set_name(const char *name);
+
+/* Serial and BLE "dns" commands. line is "dns" or "dns=...". The handler
+ * writes "@dns ..." into reply. NULL leaves the command reporting unavailable. */
+void muse_ble_set_dns_handler(bool (*handler)(const char *line, char *reply, size_t cap));
 
 /* Keeps advertising after Link setup to match settings. */
 void muse_ble_apply(void);

@@ -32,6 +32,7 @@ typedef struct esp_tls {
 typedef struct {
     void *crt_bundle_attach;
     int timeout_ms;
+    int skip_common_name;
 } esp_tls_cfg_t;
 
 static inline esp_tls_t *esp_tls_init(void) {

@@ -849,20 +849,38 @@ static bool open_subscription(void)
     return s_conn.sub_id != 0;
 }
 
+using tls_open_fn = esp_tls_t *(*)(const char *, int, const esp_tls_cfg_t *);
+static tls_open_fn s_tls_open;
+
+extern "C" void muse_hatch_set_tls_open(void *fn)
+{
+    s_tls_open = reinterpret_cast<tls_open_fn>(fn);
+}
+
 static bool connect_once(char *err, size_t err_cap, int *http_status)
 {
     *http_status = 0;
     conn_t &c = s_conn;
-    c.tls = esp_tls_init();
-    if (!c.tls) {
-        strlcpy(err, "Out of memory", err_cap);
-        return false;
-    }
+    c.tls = nullptr;
     esp_tls_cfg_t cfg = {};
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 15000;
+    cfg.skip_common_name = false;
     int64_t t0 = now_us();
-    if (esp_tls_conn_new_sync(s_host, strlen(s_host), NOISE_PORT, &cfg, c.tls) != 1) {
+    if (s_tls_open) {
+        c.tls = s_tls_open(s_host, NOISE_PORT, &cfg);
+    } else {
+        c.tls = esp_tls_init();
+        if (!c.tls) {
+            strlcpy(err, "Out of memory", err_cap);
+            return false;
+        }
+        if (esp_tls_conn_new_sync(s_host, strlen(s_host), NOISE_PORT, &cfg, c.tls) != 1) {
+            snprintf(err, err_cap, "Can't reach %s", s_host);
+            return false;
+        }
+    }
+    if (!c.tls) {
         snprintf(err, err_cap, "Can't reach %s", s_host);
         return false;
     }

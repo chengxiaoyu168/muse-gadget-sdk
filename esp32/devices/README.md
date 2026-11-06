@@ -669,6 +669,17 @@ python -m esptool --chip esp32c3 -p PORT read-flash 0 0x800000 ai-passport-backu
 Restore with `write-flash 0 ai-passport-backup.bin`. Pair in Muse under
 Settings > Devices > Developer mode > Add Device, then press OK.
 
+Updating a board that already runs this partition table: back up the 8 MB
+image first, then flash the app only (`ota_0` at `0x20000`) or run
+`idf.py flash` / `tools/muse/board.sh flash`. Do not `erase-flash`. NVS
+(pairing, Wi-Fi, and an optional DNS override) stays. `>dns` shows whether
+resolvers are still DHCP. `>dns=1.1.1.1,1.0.0.1` stores a primary and
+fallback; `>dns=clear` erases them and restarts DHCP. The same `dns` text
+works on the encrypted BLE setup channel. A build with no SDK token is not
+ready to pair until `>sdk_token=` provisions one. `hatch.token` false in
+status is normal for Home Link pairing. If every resolved address is
+blocked, changing DNS cannot open it.
+
 ## ESP32-S3-BOX-3
 
 The BOX-3 port uses Espressif’s BSP for the LCD/touch hardware revisions and
