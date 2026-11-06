@@ -308,36 +308,42 @@ bool net_dns_url_host(const char *url, char *host, size_t cap)
     return split_https(url, host, cap, &port, NULL, 0);
 }
 
+bool net_http_fill(const char *url, const char *addr, int addr_index, int timeout_ms,
+                   net_http_attempt_t *out)
+{
+    char host[256];
+    char path[256];
+    int port = 0;
+    if (!out || !addr || !addr[0] || timeout_ms <= 0) return false;
+    if (!split_https(url, host, sizeof(host), &port, path, sizeof(path))) return false;
+    memset(out, 0, sizeof(*out));
+    out->addr_index = addr_index;
+    out->timeout_ms = timeout_ms;
+    snprintf(out->addr, sizeof(out->addr), "%s", addr);
+    snprintf(out->sni, sizeof(out->sni), "%s", host);
+    int hn = port == 443
+        ? snprintf(out->host_header, sizeof(out->host_header), "%s", host)
+        : snprintf(out->host_header, sizeof(out->host_header), "%s:%d", host, port);
+    int un = port == 443
+        ? snprintf(out->connect_url, sizeof(out->connect_url), "https://%s%s", addr, path)
+        : snprintf(out->connect_url, sizeof(out->connect_url), "https://%s:%d%s", addr, port, path);
+    return hn > 0 && (size_t)hn < sizeof(out->host_header)
+        && un > 0 && (size_t)un < sizeof(out->connect_url)
+        && strcmp(out->sni, host) == 0;
+}
+
 int net_http_plan(const char *url, const char addrs[][NET_DNS_ADDR_LEN], int n_addrs,
                   int budget_ms, net_http_attempt_t *out, int max_out)
 {
     if (!url || !addrs || !out || n_addrs <= 0) return 0;
-    char host[256];
-    char path[256];
-    int port = 0;
-    if (!split_https(url, host, sizeof(host), &port, path, sizeof(path))) return 0;
     net_dns_try_t tries[NET_DNS_MAX_TRIES];
     int n_tries = net_dns_plan_tries(n_addrs, budget_ms, NET_DNS_ATTEMPT_CAP_MS,
                                      NET_DNS_ATTEMPT_MIN_MS, tries, NET_DNS_MAX_TRIES);
     if (n_tries <= 0 || n_tries > max_out) return 0;
     for (int i = 0; i < n_tries; i++) {
         int index = tries[i].addr_index;
-        if (index < 0 || index >= n_addrs || !addrs[index][0]) return 0;
-        memset(&out[i], 0, sizeof(out[i]));
-        out[i].addr_index = index;
-        out[i].timeout_ms = tries[i].timeout_ms;
-        snprintf(out[i].addr, sizeof(out[i].addr), "%s", addrs[index]);
-        snprintf(out[i].sni, sizeof(out[i].sni), "%s", host);
-        int hn = port == 443
-            ? snprintf(out[i].host_header, sizeof(out[i].host_header), "%s", host)
-            : snprintf(out[i].host_header, sizeof(out[i].host_header), "%s:%d", host, port);
-        int un = port == 443
-            ? snprintf(out[i].connect_url, sizeof(out[i].connect_url), "https://%s%s", addrs[index], path)
-            : snprintf(out[i].connect_url, sizeof(out[i].connect_url), "https://%s:%d%s",
-                       addrs[index], port, path);
-        if (hn <= 0 || (size_t)hn >= sizeof(out[i].host_header) ||
-            un <= 0 || (size_t)un >= sizeof(out[i].connect_url) ||
-            strcmp(out[i].sni, host) != 0) {
+        if (index < 0 || index >= n_addrs ||
+            !net_http_fill(url, addrs[index], index, tries[i].timeout_ms, &out[i])) {
             return 0;
         }
     }

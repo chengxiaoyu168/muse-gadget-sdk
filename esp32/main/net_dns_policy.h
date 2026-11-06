@@ -110,9 +110,15 @@ bool net_dns_needs_reapply(const net_dns_config_t *cfg, const uint32_t slots_hos
 int net_dns_plan_tries(int n_addrs, int budget_ms, int cap_ms, int min_ms,
                        net_dns_try_t *out, int max_out);
 
-/* HTTPS only. connect_url uses the address; sni and host_header keep the
- * name so certificate checks and the Host header are unchanged. 0 means
- * the caller should open the original URL. */
+/* One HTTPS attempt. connect_url uses the address; sni and host_header keep
+ * the name so certificate checks and the Host header are unchanged.
+ * Callers on device must fill one record at a time: eight of these are
+ * about 8 KB, which is the whole main-task stack on the AI Passport. */
+bool net_http_fill(const char *url, const char *addr, int addr_index, int timeout_ms,
+                   net_http_attempt_t *out);
+
+/* HTTPS only. 0 means the caller should open the original URL.
+ * Host tests may pass an array. Device code uses net_http_fill. */
 int net_http_plan(const char *url, const char addrs[][NET_DNS_ADDR_LEN], int n_addrs,
                   int budget_ms, net_http_attempt_t *out, int max_out);
 

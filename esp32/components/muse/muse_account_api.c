@@ -139,19 +139,27 @@ int muse_hatch_api_find_vm(const char *device_token, const char *want_vm, muse_h
     if (s_resolve_ipv4 && net_dns_url_host(FETCH_URL, host, sizeof(host))) {
         n_addrs = s_resolve_ipv4(host, addrs, NET_DNS_MAX_ADDRS);
     }
-    net_http_attempt_t attempts[NET_DNS_MAX_TRIES];
+    /* One attempt record. The array used to be ~8 KB and overflowed the
+     * task that calls this. */
+    net_dns_try_t tries[NET_DNS_MAX_TRIES];
     int n_tries = n_addrs > 0
-        ? net_http_plan(FETCH_URL, addrs, n_addrs, NET_DNS_CONNECT_BUDGET_MS,
-                        attempts, NET_DNS_MAX_TRIES)
+        ? net_dns_plan_tries(n_addrs, NET_DNS_CONNECT_BUDGET_MS, NET_DNS_ATTEMPT_CAP_MS,
+                             NET_DNS_ATTEMPT_MIN_MS, tries, NET_DNS_MAX_TRIES)
         : 0;
     if (n_tries > 0) {
         for (int i = 0; i < n_tries; i++) {
+            net_http_attempt_t attempt;
+            int index = tries[i].addr_index;
+            if (index < 0 || index >= n_addrs ||
+                !net_http_fill(FETCH_URL, addrs[index], index, tries[i].timeout_ms, &attempt)) {
+                break;
+            }
             r.len = 0;
-            status = fetch_at(attempts[i].connect_url, auth, &r, attempts[i].sni,
-                              attempts[i].host_header, attempts[i].timeout_ms);
+            status = fetch_at(attempt.connect_url, auth, &r, attempt.sni,
+                              attempt.host_header, attempt.timeout_ms);
             if (status == 401 || status == 403 || (status >= 200 && status < 500)) break;
             ESP_LOGW(TAG, "fetch_vms address %d/%d %s failed (HTTP %d)",
-                     i + 1, n_tries, attempts[i].addr, status);
+                     i + 1, n_tries, attempt.addr, status);
         }
     }
     for (int i = 0; n_tries == 0 && i < ATTEMPTS; i++) {
